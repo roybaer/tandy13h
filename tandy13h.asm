@@ -126,37 +126,88 @@ ctrl_loop:
 behind_tsr_end:
 
 main:
+	; print title
+	mov	dx,msg_title
+	mov	ah,9
+	int	21h
+
+	; get interrupt vector for 10h (stores result in es:bx)
 	mov	ax,3510h
 	int	21h
 
+	; try to figure out whether the TSR is already installed
 	mov	cx,8
 	mov	di,signature
 	mov	si,signature
 	repe	cmpsb
-	jne	install_tsr
-
-	mov	dx,error_msg
-	mov	ah,9
-	int	21h
-
-	mov	ah,0
-	int	21h
-
-install_tsr:
+	; store old interrupt vector
 	mov	word [int10seg],es
 	mov	word [int10ofs],bx
+        ; install TSR if signature check failed
+	jne	install_tsr
 
+	mov	dx,msg_error_already_loaded
+	jmp	output_msg_and_exit
+
+install_tsr:
+	; find out whether the active graphics adapter is Tandy Video II
+
+	; check whether it supports VGA's "read combination code"
+	mov	ax,1a00h
+	mov	bx,0eeeeh	; bogus value
+	int	10h
+	; if this is a VGA it cannot be a Tandy Video II
+	cmp	bx,0eeeeh
+	jne	incompat_vid
+	; if this is an EGA it cannot be a Tandy Video II
+	mov	ah,12h
+	mov	bl,10h
+	int	10h
+	cmp	bl,10h
+	jne	incompat_vid
+	; if it is neither VGA nor EGA and runs in mode 7, it cannot be a Tandy Video II with color screen
+	mov	ax,0f00h
+	int	10h
+	cmp	al,7
+	je	incompat_vid
+	; check magic numbers in BIOS area to rule out PCjr and older Tandy 1000
+	push	0fc00h
+	pop	es
+	mov	ah,[es:3ffeh]
+	mov	al,[es:0]
+	cmp	ax,0ff21h
+	jne	incompat_vid
+	; newer Tandy 1000 detected; check whether it supports "get configuration"
+	mov	ah,0c0h
+	int	15h
+	jc	incompat_vid
+	; it does => Tandy Video II detected (RL, SL and TL series)
+	; go on and install the TSR
 	mov	ax,2510h
 	mov	dx,tsr10
 	int	21h
 
-	mov	dx,success_msg
+	; print success message
+	mov	dx,msg_success
 	mov	ah,9
 	int	21h
 
+	; terminate and stay resident
 	mov	ax,3100h
 	mov	dx,(behind_tsr_end+15)>>4
 	int	21h
 
-error_msg db "Error: TSR already loaded$"
-success_msg db "TSR successfully loaded$"
+; incompatible graphics adapter detected
+incompat_vid:
+	mov	dx,msg_error_incompat_vid
+output_msg_and_exit:
+	mov	ah,9
+	int	21h
+	mov	ah,0
+	int	21h
+
+
+msg_title db "VGA/MCGA mode 13h emulator for Tandy Video II",10,13,'$'
+msg_error_already_loaded db "Error: TSR already loaded$"
+msg_success db "Success: TSR loaded$"
+msg_error_incompat_vid db "Error: Active graphics adapter is not Tandy Video II$"
