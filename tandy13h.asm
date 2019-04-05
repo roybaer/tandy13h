@@ -8,18 +8,49 @@
 	jmp	main
 
 tsr10:
-	cmp	ax,0013h
-	je	intercept
+	cmp	ah,00h
+	je	intercept_00h
+	cmp	ah,0fh
+	je	intercept_0fh
+	cmp	ax,1a00h
+	je	intercept_1a00h
+normal_int_10h:
 	push	word [cs:int10seg]
 	push	word [cs:int10ofs]
 	retf
-intercept:
+
+intercept_00h:
+	mov	[cs:display_mode],al
+	cmp	al,13h
+	je	mode_13h_requested
+	cmp	al,93h
+	je	mode_13h_requested
+	jmp	normal_int_10h
+
+intercept_0fh:
+	cmp	byte [cs:display_mode],13h
+	jne	not_13h
+not_13h:
+	cmp	byte [cs:display_mode],93h
+	jne	normal_int_10h
+	mov	ah,40	; number of character columns
+	mov	al,[cs:display_mode]
+	mov	bl,0	; active page
+	iret
+
+intercept_1a00h:
+	mov	al,ah
+	mov	bx,0a0ah	; MCGA with digital color display
+	iret
+
+mode_13h_requested:
 	call	set_mode_640x200x16
 	mov	al,20h
 	iret
 
 int10seg dw 0000h
 int10ofs dw 0000h
+display_mode db 0
 
 ; data for CRTC registers 0-18, index port 3d4h, data port 3d4h
 crtc_tab db 71h,50h,5ah,0efh,0ffh,6,0c8h,0e2h,1ch,0,0,0,0,0,0,0,18h,0,46h
@@ -98,6 +129,8 @@ ctrl_loop:
 	mov	al,24h
 	out	dx,al	
 
+	cmp	byte [cs:display_mode],93h
+	je	skip_clear_screen
 	; clear screen
 	push	es	; save es
 	push	0a000h
@@ -111,6 +144,7 @@ ctrl_loop:
 	pop	cx	; restore cx
 	pop	di	; restore di
 	pop	es	; restore es
+skip_clear_screen:
 
 	; select 640 dot graphics mode with hi-res clock, enable video
 	mov	dl,0d8h	; dx = 3d8h
@@ -146,6 +180,27 @@ main:
         ; install TSR if signature check failed
 	jne	install_tsr
 
+	; TSR removal requested? (case insensitive /u)
+	cmp	word [81h]," /"
+	jne	already_loaded
+	mov	ax,[83h]
+	or	al,20h
+	cmp	ax,'u'+(13<<8)
+	jne	already_loaded
+	; restore original interrupt vector
+	mov	ax,2510h
+	push	ds	; save ds
+	push	word [es:int10seg]
+	pop	ds
+	mov	dx,[es:int10ofs]
+	int	21h
+	; free TSR memory; TSR segment already in es
+	mov	ah,49h
+	int	21h
+	pop	ds	; restore ds
+	mov	dx,msg_success_rem
+	jmp	output_msg_and_exit
+already_loaded:
 	mov	dx,msg_error_already_loaded
 	jmp	output_msg_and_exit
 
@@ -154,11 +209,10 @@ install_tsr:
 
 	; check whether it supports VGA's "read combination code"
 	mov	ax,1a00h
-	mov	bx,0eeeeh	; bogus value
 	int	10h
 	; if this is a VGA it cannot be a Tandy Video II
-	cmp	bx,0eeeeh
-	jne	incompat_vid
+	cmp	al,1ah
+	je	incompat_vid
 	; if this is an EGA it cannot be a Tandy Video II
 	mov	ah,12h
 	mov	bl,10h
@@ -207,7 +261,8 @@ output_msg_and_exit:
 	int	21h
 
 
-msg_title db "VGA/MCGA mode 13h emulator for Tandy Video II",10,13,'$'
-msg_error_already_loaded db "Error: TSR already loaded$"
-msg_success db "Success: TSR loaded$"
-msg_error_incompat_vid db "Error: Active graphics adapter is not Tandy Video II$"
+msg_title db "MCGA 13h emulator for Tandy Video II - TSR $"
+msg_error_already_loaded db "already loaded",10,13,"$"
+msg_success db "loaded",10,13,"$"
+msg_success_rem db "removed",10,13,"$"
+msg_error_incompat_vid db "error: Wrong graphics adapter",10,13,"$"
