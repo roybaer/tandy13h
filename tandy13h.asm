@@ -29,10 +29,10 @@ intercept_00h:
 
 intercept_0fh:
 	cmp	byte [cs:display_mode],13h
-	jne	not_13h
-not_13h:
+	je	is_13h
 	cmp	byte [cs:display_mode],93h
 	jne	normal_int_10h
+is_13h:
 	mov	ah,40	; number of character columns
 	mov	al,[cs:display_mode]
 	mov	bl,0	; active page
