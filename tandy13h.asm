@@ -133,8 +133,8 @@ ctrl_loop:
 	je	skip_clear_screen
 	; clear screen
 	push	es	; save es
-	push	0a000h
-	pop	es	; es=0a000h
+	mov	ax,0a000h
+	mov	es,ax	; es=0a000h
 	push	di	; save di
 	xor	di,di	; di=0
 	xor	ax,ax	; ax=0
@@ -225,8 +225,8 @@ install_tsr:
 	cmp	al,7
 	je	incompat_vid
 	; check magic numbers in BIOS area to rule out PCjr and older Tandy 1000
-	push	0fc00h
-	pop	es
+	mov	ax,0fc00h
+	mov	es,ax
 	mov	ah,[es:3ffeh]
 	mov	al,[es:0]
 	cmp	ax,0ff21h
